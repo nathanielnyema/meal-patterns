@@ -112,7 +112,6 @@ def bin_stats(bout_stats, bins_start, bins_end, binsize_hr):
     binsize_hr: float, int
         the bin size in hours for binning the data
     """
-    #TODO: make sure all bins show up in the final spreadsheet
     bins = pd.date_range(bins_start, 
                          bins_end + timedelta(hours = binsize_hr), 
                          freq = f'{binsize_hr}H')
@@ -130,7 +129,7 @@ def bin_stats(bout_stats, bins_start, bins_end, binsize_hr):
                             index = pd.MultiIndex.from_tuples(idx))
             x = pd.concat((x,y)).sort_index()
         return x
-    
+    binned_stats = binned_stats.groupby(['feeder','Cage']).apply(fill_empty_bins)
     return binned_stats
 
 def load_labmaster(fpath, excl):
