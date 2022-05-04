@@ -143,8 +143,7 @@ def load_labmaster(fpath):
     df = df.astype(float)
     feeders = {}
     for f in df.columns.get_level_values('feeder').unique():
-        feeder = df.stack('Cage')[f]
-        feeder = feeder.loc[feeder>=excl].swaplevel().sort_index()
+        feeder = df.stack('Cage')[f].swaplevel().sort_index()
         feeder.name = 'In_g'
         feeder = feeder.reset_index()
         feeder['end_dts'] = feeder.start_dts + timedelta(seconds = 10)
@@ -223,11 +222,5 @@ def run_analysis(df_in, inter_thresh, excl,
     bout_stats = pd.concat(bout_stats, names = ['feeder'])
     binned_stats = pd.concat(binned_stats, names = ['feeder'])
     binned_stats = binned_stats.unstack('Cage').fillna(0).stack('Cage').swaplevel('bins','Cage')
-    stats = ['dur_s', 'size', 'imis_s', 'meal_n']
-    
-    #write the results to an excel spreadsheet
-    with pd.ExcelWriter(fname, engine='xlsxwriter') as writer:
-        for stat in stats:
-            binned_stats.unstack(['feeder','Cage'])[stat].to_excel(writer, sheet_name = stat)
     return bout_stats, binned_stats
     
