@@ -15,7 +15,10 @@ def compute_inter(x):
     diff.index = x.iloc[1:].index.get_level_values('Event')
     return diff
 
-def load_labmaster(fpath, excl):
+def load_operant():
+    raise NotImplementedError
+
+def load_labmaster(fpath):
     """
     load the labmaster data
     """
@@ -63,7 +66,7 @@ def load_data(fpath, sheets, labmaster, excl):
     df: pd.DataFrame
     """
     if labmaster:
-        df = load_labmaster(fpath, excl)
+        df = load_labmaster(fpath)
     else:
         df = pd.read_excel(fpath , engine = 'openpyxl', sheet_name = sheets)
         df = pd.concat(df, names = ['feeders'])
