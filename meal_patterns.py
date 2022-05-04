@@ -143,7 +143,8 @@ def load_labmaster(fpath):
     df = df.astype(float)
     feeders = {}
     for f in df.columns.get_level_values('feeder').unique():
-        feeder = df.stack('Cage')[f].swaplevel().sort_index()
+        feeder = df.stack('Cage')[f]
+        feeder = feeder.loc[feeder>=excl].swaplevel().sort_index()
         feeder.name = 'In_g'
         feeder = feeder.reset_index()
         feeder['end_dts'] = feeder.start_dts + timedelta(seconds = 10)
