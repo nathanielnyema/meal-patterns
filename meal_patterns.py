@@ -15,6 +15,74 @@ def compute_inter(x):
     diff.index = x.iloc[1:].index.get_level_values('Event')
     return diff
 
+def load_labmaster(fpath, excl):
+    """
+    load the labmaster data
+    """
+    d=[]
+    with open(fpath) as f:
+        reader=csv.reader(f,delimiter=';')
+        for row in reader:
+            d.append(row)
+    header_idx = d.index(list(filter(lambda x:'Date' in x, d))[0])
+    df = pd.DataFrame(d[header_idx+1:], columns=d[header_idx])
+    df['start_dts'] = pd.to_datetime(df.Date + ' ' + df.Time)
+    df.set_index('start_dts', inplace = True)
+    df = df.drop(columns = ['Date','Time'])
+    sp = df.columns.str.split(': ')
+    boxes = sp.map(lambda x: x[0]).str.extract('Box(\d)')[0].map(int)
+    ev = sp.map(lambda x: x[-1]).tolist()
+    df.columns  = pd.MultiIndex.from_tuples(list(zip(boxes, ev)), names = ['Cage', 'feeder'])
+    df = df.astype(float)
+    feeders = {}
+    for f in df.columns.get_level_values('feeder').unique():
+        feeder = df.stack('Cage')[f]
+        feeder.name = 'In_g'
+        feeder = feeder.reset_index()
+        feeder['end_dts'] = feeder.start_dts + timedelta(seconds = 10)
+        feeders[f] = feeder.set_index(['Cage', 'start_dts'])
+    df = pd.concat(feeders, names = ['feeders'])
+    return df
+
+def load_data(fpath, sheets, labmaster, excl):
+    """
+    general function for loading data and prepping
+    for downstream analyses.
+
+    Parameters
+    ----------
+    fpath: str
+        the path to the data file
+    sheets: list
+        a list of the names of the sheets with relevant data
+    labmaster: bool
+        whether or not this data was collected with the labmaster
+    
+    Returns
+    -------
+    df: pd.DataFrame
+    """
+    if labmaster:
+        df = load_labmaster(fpath, excl)
+    else:
+        df = pd.read_excel(fpath , engine = 'openpyxl', sheet_name = sheets)
+        df = pd.concat(df, names = ['feeders'])
+        df['start_dts'] = pd.to_datetime(df.StartDate + ' ' +  df.StartTime)
+        df['end_dts'] = pd.to_datetime(df.EndDate + ' ' +  df.EndTime)
+        df = df.reset_index().set_index(['feeders','Cage', 'start_dts'])
+   
+    def label_evs(x):
+        x['Event'] = np.arange(1,len(x) + 1)
+        return x
+
+    df = df.loc[df.In_g>=excl].sort_index()
+    df = df.groupby(['feeders', 'Cage']).apply(label_evs)
+    df = df.reset_index().set_index(['feeders','Cage', 'Event'])
+    diff = df.groupby(['feeders','Cage']).apply(compute_inter)
+    df['InterIn_min'] = diff
+    df = df[['In_g','InterIn_min','start_dts', 'end_dts']]
+    return df
+
 def get_bouts(df, inter_thresh):
 
     """
@@ -96,7 +164,7 @@ def get_bouts(df, inter_thresh):
     bout_stats.loc[bout_stats.imis_s<0,'imis_s'] = 0. # force negative imis to 0. this happens when theres only 1 meal
     return bout_stats.fillna(0), df
 
-def bin_stats(bout_stats, bins_start, bins_end, binsize_hr):
+def bin_stats(bout_stats, bins):
     """
     given the output of get_bouts, bin the bout statistics
     using pivot table averaging
@@ -112,92 +180,13 @@ def bin_stats(bout_stats, bins_start, bins_end, binsize_hr):
     binsize_hr: float, int
         the bin size in hours for binning the data
     """
-    bins = pd.date_range(bins_start, 
-                         bins_end + timedelta(hours = binsize_hr), 
-                         freq = f'{binsize_hr}H')
+    
     bout_stats['bins'] = pd.cut(bout_stats.start, bins).apply(lambda x: x.left).astype(np.datetime64)
     binned_stats = bout_stats.pivot_table(index = ['Cage', 'bins'], 
                                           values = ['dur_s', 'size', 'imis_s'])
     binned_stats['meal_n'] = bout_stats.groupby(['Cage', 'bins']).apply(len)
-    def fill_empty_bins(x):
-        empty = ~bins[:-1].isin(x.index.get_level_values('bins'))
-        empty = bins[:-1][empty]
-        if len(empty)>0:
-            idx = [(x.index.get_level_values('Cage').unique()[0],n) for n in empty]
-            y = pd.DataFrame(np.nan * np.ones((len(idx), 4)), columns = x.columns,
-                            index = pd.MultiIndex.from_tuples(idx))
-            x = pd.concat((x,y)).sort_index()
-        return x.droplevel(0)
-    binned_stats = binned_stats.groupby(['Cage']).apply(fill_empty_bins)
     return binned_stats
 
-def load_labmaster(fpath, excl):
-    """
-    load the labmaster data
-    """
-    d=[]
-    with open(fpath) as f:
-        reader=csv.reader(f,delimiter=';')
-        for row in reader:
-            d.append(row)
-    header_idx = d.index(list(filter(lambda x:'Date' in x, d))[0])
-    df = pd.DataFrame(d[header_idx+1:], columns=d[header_idx])
-    df['start_dts'] = pd.to_datetime(df.Date + ' ' + df.Time)
-    df.set_index('start_dts', inplace = True)
-    df = df.drop(columns = ['Date','Time'])
-    sp = df.columns.str.split(': ')
-    boxes = sp.map(lambda x: x[0]).str.extract('Box(\d)')[0].map(int)
-    ev = sp.map(lambda x: x[-1]).tolist()
-    df.columns  = pd.MultiIndex.from_tuples(list(zip(boxes, ev)), names = ['Cage', 'feeder'])
-    df = df.astype(float)
-    feeders = {}
-    for f in df.columns.get_level_values('feeder').unique():
-        feeder = df.stack('Cage')[f]
-        feeder.name = 'In_g'
-        feeder = feeder.reset_index()
-        feeder['end_dts'] = feeder.start_dts + timedelta(seconds = 10)
-        feeders[f] = feeder.set_index(['Cage', 'start_dts'])
-    df = pd.concat(feeders, names = ['feeders'])
-    return df
-
-def load_data(fpath, sheets, labmaster, excl):
-    """
-    general function for loading data and prepping
-    for downstream analyses.
-
-    Parameters
-    ----------
-    fpath: str
-        the path to the data file
-    sheets: list
-        a list of the names of the sheets with relevant data
-    labmaster: bool
-        whether or not this data was collected with the labmaster
-    
-    Returns
-    -------
-    df: pd.DataFrame
-    """
-    if labmaster:
-        df = load_labmaster(fpath, excl)
-    else:
-        df = pd.read_excel(fpath , engine = 'openpyxl', sheet_name = sheets)
-        df = pd.concat(df, names = ['feeders'])
-        df['start_dts'] = pd.to_datetime(df.StartDate + ' ' +  df.StartTime)
-        df['end_dts'] = pd.to_datetime(df.EndDate + ' ' +  df.EndTime)
-        df = df.reset_index().set_index(['feeders','Cage', 'start_dts'])
-   
-    def label_evs(x):
-        x['Event'] = np.arange(1,len(x) + 1)
-        return x
-
-    df = df.loc[df.In_g>=excl].sort_index()
-    df = df.groupby(['feeders', 'Cage']).apply(label_evs)
-    df = df.reset_index().set_index(['feeders','Cage', 'Event'])
-    diff = df.groupby(['feeders','Cage']).apply(compute_inter)
-    df['InterIn_min'] = diff
-    df = df[['In_g','InterIn_min','start_dts', 'end_dts']]
-    return df
 
 def run_analysis(df_in, inter_thresh, binsize_hr, start):
     """
@@ -226,14 +215,21 @@ def run_analysis(df_in, inter_thresh, binsize_hr, start):
     binned_stats = {}
     for s in df_in.index.get_level_values('feeders').unique():
         df = df_in.loc[s].copy()
-        end = df.end_dts.max()
-        # run the analysis
         bout_stats[s], _ = get_bouts(df, inter_thresh)
-        binned_stats[s] = bin_stats(bout_stats[s], start, end, binsize_hr)
+        end = df.end_dts.max()
+        bins = pd.date_range(start, end + timedelta(hours = binsize_hr), 
+                             freq = f'{binsize_hr}H')
+        binned_stats[s] = bin_stats(bout_stats[s], bins)
     
     #combine the dataframes from the feeder events
     bout_stats = pd.concat(bout_stats, names = ['feeder'])
     binned_stats = pd.concat(binned_stats, names = ['feeder'])
-    binned_stats = binned_stats.sort_index()
+    bins = bins[:-1].to_numpy()
+    feeders = binned_stats.index.get_level_values("feeder").unique().to_numpy()
+    cages = binned_stats.index.get_level_values("Cage").unique().to_numpy()
+    new_idx = list(zip(feeders.repeat(bins.size*cages.size), 
+                    np.tile(cages.repeat(bins.size), feeders.size), 
+                    np.tile(bins, feeders.size*cages.size)))
+    binned_stats = binned_stats.reindex(pd.MultiIndex.from_tuples(new_idx, names = ['feeder', 'Cage', 'bins']))
     return bout_stats, binned_stats
     
