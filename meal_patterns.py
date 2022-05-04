@@ -4,7 +4,7 @@ import datetime
 from datetime import timedelta
 import csv
 
-def update_inter(x):
+def compute_inter(x):
     """
     when we exclude data points the inter event intervals 
     automatically generated are no longer correct so we
@@ -12,8 +12,8 @@ def update_inter(x):
     """
     diff = (x.start_dts.iloc[1:].reset_index(drop=True) - \
             x.end_dts.iloc[:-1].reset_index(drop=True)).dt.total_seconds()/60
-    diff.index = x.iloc[1:].index
-    return diff.droplevel(0)
+    diff.index = x.iloc[1:].index.get_level_values('Event')
+    return diff
 
 def get_bouts(df, inter_thresh):
 
@@ -122,7 +122,7 @@ def bin_stats(bout_stats, bins_start, bins_end, binsize_hr):
     binned_stats['meal_n'] = bout_stats.groupby(['Cage', 'bins']).apply(len)
     return binned_stats
 
-def load_labmaster(fpath):
+def load_labmaster(fpath, excl):
     """
     load the labmaster data
     """
@@ -143,18 +143,15 @@ def load_labmaster(fpath):
     df = df.astype(float)
     feeders = {}
     for f in df.columns.get_level_values('feeder').unique():
-        feeder = df.stack('Cage')[f].swaplevel().sort_index()
+        feeder = df.stack('Cage')[f]
         feeder.name = 'In_g'
         feeder = feeder.reset_index()
         feeder['end_dts'] = feeder.start_dts + timedelta(seconds = 10)
-        def label_evs(x):
-            x['Event'] = np.arange(1,len(x) + 1)
-            return x
-        feeders[f] = feeder.groupby('Cage').apply(label_evs).set_index(['Cage', 'Event'])
+        feeders[f] = feeder.set_index(['Cage', 'start_dts'])
     df = pd.concat(feeders, names = ['feeders'])
     return df
 
-def load_data(fpath, sheets, labmaster):
+def load_data(fpath, sheets, labmaster, excl):
     """
     general function for loading data and prepping
     for downstream analyses.
@@ -173,13 +170,24 @@ def load_data(fpath, sheets, labmaster):
     df: pd.DataFrame
     """
     if labmaster:
-        df = load_labmaster(fpath)
+        df = load_labmaster(fpath, excl)
     else:
-        df = pd.read_excel(fpath , sheet_name = sheets, index_col = [0,1])
+        df = pd.read_excel(fpath , engine = 'openpyxl', sheet_name = sheets)
         df = pd.concat(df, names = ['feeders'])
         df['start_dts'] = pd.to_datetime(df.StartDate + ' ' +  df.StartTime)
         df['end_dts'] = pd.to_datetime(df.EndDate + ' ' +  df.EndTime)
-        df = df[['In_g','start_dts', 'end_dts']]
+        df = df.reset_index().set_index(['feeders','Cage', 'start_dts'])
+   
+    def label_evs(x):
+        x['Event'] = np.arange(1,len(x) + 1)
+        return x
+
+    df = df.loc[df.In_g>=excl].sort_index()
+    df = df.groupby(['feeders', 'Cage']).apply(label_evs)
+    df = df.reset_index().set_index(['feeders','Cage', 'Event'])
+    diff = df.groupby(['feeders','Cage']).apply(compute_inter)
+    df['InterIn_min'] = diff
+    df = df[['In_g','InterIn_min','start_dts', 'end_dts']]
     return df
 
 def run_analysis(df_in, inter_thresh, excl,
@@ -210,9 +218,6 @@ def run_analysis(df_in, inter_thresh, excl,
     binned_stats = {}
     for s in df_in.index.get_level_values('feeders').unique():
         df = df_in.loc[s].copy()
-        df = df.loc[df.In_g>=excl]
-        new_diffs = df.groupby('Cage').apply(update_inter)
-        df.loc[new_diffs.index,'InterIn_min'] = new_diffs
         end = df.end_dts.max()
         # run the analysis
         bout_stats[s], _ = get_bouts(df, inter_thresh)
