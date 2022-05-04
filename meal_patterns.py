@@ -123,13 +123,12 @@ def bin_stats(bout_stats, bins_start, bins_end, binsize_hr):
         empty = ~bins[:-1].isin(x.index.get_level_values('bins'))
         empty = bins[:-1][empty]
         if len(empty)>0:
-            idx = [(x.index.get_level_values('feeder').unique()[0], 
-                    x.index.get_level_values('Cage').unique()[0],n) for n in empty]
+            idx = [(x.index.get_level_values('Cage').unique()[0],n) for n in empty]
             y = pd.DataFrame(np.nan * np.ones((len(idx), 4)), columns = x.columns,
                             index = pd.MultiIndex.from_tuples(idx))
             x = pd.concat((x,y)).sort_index()
-        return x
-    binned_stats = binned_stats.groupby(['feeder','Cage']).apply(fill_empty_bins)
+        return x.droplevel(0)
+    binned_stats = binned_stats.groupby(['Cage']).apply(fill_empty_bins)
     return binned_stats
 
 def load_labmaster(fpath, excl):
@@ -235,6 +234,6 @@ def run_analysis(df_in, inter_thresh, binsize_hr, start):
     #combine the dataframes from the feeder events
     bout_stats = pd.concat(bout_stats, names = ['feeder'])
     binned_stats = pd.concat(binned_stats, names = ['feeder'])
-    binned_stats = binned_stats.unstack('Cage').fillna(0).stack('Cage').swaplevel('bins','Cage')
+    binned_stats = binned_stats.sort_index()
     return bout_stats, binned_stats
     
