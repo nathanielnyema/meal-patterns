@@ -94,7 +94,7 @@ def get_bouts(df, inter_thresh):
     bout_stats = df.groupby(['Cage','bout_n']).apply(get_bout_stats)
     bout_stats['imis_s'] = bout_stats.groupby('Cage').apply(get_imis)
     bout_stats.loc[bout_stats.imis_s<0,'imis_s'] = 0. # force negative imis to 0. this happens when theres only 1 meal
-    return bout_stats, df
+    return bout_stats.fillna(0), df
 
 def bin_stats(bout_stats, bins_start, bins_end, binsize_hr):
     """
@@ -120,7 +120,7 @@ def bin_stats(bout_stats, bins_start, bins_end, binsize_hr):
     binned_stats = bout_stats.pivot_table(index = ['Cage', 'bins'], 
                                           values = ['dur_s', 'size', 'imis_s'])
     binned_stats['meal_n'] = bout_stats.groupby(['Cage', 'bins']).apply(len)
-    return binned_stats
+    return binned_stats.fillna(0)
 
 def load_labmaster(fpath, excl):
     """
@@ -190,8 +190,7 @@ def load_data(fpath, sheets, labmaster, excl):
     df = df[['In_g','InterIn_min','start_dts', 'end_dts']]
     return df
 
-def run_analysis(df_in, inter_thresh, excl,
-                 binsize_hr, start, fname):
+def run_analysis(df_in, inter_thresh, binsize_hr, start):
     """
     Parameters:
     ----------
