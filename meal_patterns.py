@@ -17,7 +17,7 @@ def compute_inter(x):
     diff.index = x.iloc[1:].index.get_level_values('Event')
     return diff
 
-def load_operant(fpath, var_names = ['l','r']):
+def load_operant(fpath, var_names = ['l','r'], dur = None):
     if os.path.isfile(fpath):
         d = pull_data(fpath, key = 'box')
     else:
@@ -29,9 +29,14 @@ def load_operant(fpath, var_names = ['l','r']):
             df['Cage'].extend([bx] * d[bx][-1][v].size)
             df['feeders'].extend([v] * d[bx][-1][v].size)
             df['In_g'].extend([amt] * d[bx][-1][v].size)
-            t = (d[bx][-1]['start'] + d[bx][0][v][:] * timedelta(seconds = 1)).flatten()
+            if dur is not None:
+                st = d[bx][-1]['end'] - timedelta(hours= dur)
+            else:
+                st = d[bx][-1]['start']
+            t = (st + d[bx][0][v][:] * timedelta(seconds = 1)).flatten()
             df['start_dts'].extend( t.tolist())
             df['end_dts'].extend((t + timedelta(seconds = 0.0001)).tolist())
+
     df = pd.DataFrame(df).set_index(['feeders','Cage', 'start_dts'])
     return df
 
@@ -75,7 +80,7 @@ def load_labmaster(fpath):
     df = pd.concat(feeders, names = ['feeders'])
     return df
 
-def load_data(fpath, sheets, device, excl):
+def load_data(fpath, sheets, device, excl, dur = None):
     """
     general function for loading data and prepping
     for downstream analyses.
@@ -98,7 +103,7 @@ def load_data(fpath, sheets, device, excl):
     elif device == 'promethion':
         df = load_promethion(fpath, sheets)
     elif device == 'medpc':
-        df = load_operant(fpath, sheets)
+        df = load_operant(fpath, sheets, dur)
 
     def label_evs(x):
         x['Event'] = np.arange(1,len(x) + 1)
@@ -262,3 +267,14 @@ def run_analysis(df_in, inter_thresh, binsize_hr, start):
     binned_stats = binned_stats.reindex(pd.MultiIndex.from_tuples(new_idx, names = ['feeder', 'Cage', 'bins']))
     return bout_stats, binned_stats
     
+
+def apply_cb(fpath, stats):
+    """
+    apply counterbalancing
+    """
+    cb = pd.read_csv(fpath, index_col = 0)
+    tmp =stats.reset_index()
+    for i in tmp.Cage.unique():
+        c = cb.loc[i]
+        tmp.loc[tmp.Cage==i,'feeder'] = tmp.loc[tmp.Cage==i].feeder.replace(dict(zip(c.values, c.index)))
+    return tmp.set_index(['feeder','Cage'])
