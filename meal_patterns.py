@@ -3,6 +3,8 @@ import numpy as np
 import datetime
 from datetime import timedelta
 import csv
+from pull_operant_data import pull_multiple, pull_data
+import os
 
 def compute_inter(x):
     """
@@ -15,8 +17,34 @@ def compute_inter(x):
     diff.index = x.iloc[1:].index.get_level_values('Event')
     return diff
 
-def load_operant():
-    raise NotImplementedError
+def load_operant(fpath, var_names = ['l','r']):
+    if os.path.isfile(fpath):
+        d = pull_data(fpath, key = 'box')
+    else:
+        d = pull_multiple(fpath, key = 'box', use_most_recent=True, log = True)
+    amt = 1
+    df = {'Cage': [], 'feeders': [], 'start_dts': [], 'In_g': [], 'end_dts': []} 
+    for bx in d:
+        for v in var_names:
+            df['Cage'].extend([bx] * d[bx][-1][v].size)
+            df['feeders'].extend([v] * d[bx][-1][v].size)
+            df['In_g'].extend([amt] * d[bx][-1][v].size)
+            t = (d[bx][-1]['start'] + d[bx][0][v][:] * timedelta(seconds = 1)).flatten()
+            df['start_dts'].extend( t.tolist())
+            df['end_dts'].extend((t + timedelta(seconds = 0.0001)).tolist())
+    df = pd.DataFrame(df).set_index(['feeders','Cage', 'start_dts'])
+    return df
+
+def load_promethion(fpath, sheets):
+    """
+    load the promethion data
+    """
+    df = pd.read_excel(fpath , engine = 'openpyxl', sheet_name = sheets)
+    df = pd.concat(df, names = ['feeders'])
+    df['start_dts'] = pd.to_datetime(df.StartDate + ' ' +  df.StartTime)
+    df['end_dts'] = pd.to_datetime(df.EndDate + ' ' +  df.EndTime)
+    df = df.reset_index().set_index(['feeders', 'Cage', 'start_dts'])
+    return df
 
 def load_labmaster(fpath):
     """
@@ -47,7 +75,7 @@ def load_labmaster(fpath):
     df = pd.concat(feeders, names = ['feeders'])
     return df
 
-def load_data(fpath, sheets, labmaster, excl):
+def load_data(fpath, sheets, device, excl):
     """
     general function for loading data and prepping
     for downstream analyses.
@@ -65,15 +93,13 @@ def load_data(fpath, sheets, labmaster, excl):
     -------
     df: pd.DataFrame
     """
-    if labmaster:
+    if device == 'labmaster':
         df = load_labmaster(fpath)
-    else:
-        df = pd.read_excel(fpath , engine = 'openpyxl', sheet_name = sheets)
-        df = pd.concat(df, names = ['feeders'])
-        df['start_dts'] = pd.to_datetime(df.StartDate + ' ' +  df.StartTime)
-        df['end_dts'] = pd.to_datetime(df.EndDate + ' ' +  df.EndTime)
-        df = df.reset_index().set_index(['feeders','Cage', 'start_dts'])
-   
+    elif device == 'promethion':
+        df = load_promethion(fpath, sheets)
+    elif device == 'medpc':
+        df = load_operant(fpath, sheets)
+
     def label_evs(x):
         x['Event'] = np.arange(1,len(x) + 1)
         return x
