@@ -193,8 +193,17 @@ def get_bouts(df, inter_thresh):
     
     df['bout_n'] = np.ones(df.shape[0])*np.nan 
     df = df.groupby('Cage').apply(find_bouts).fillna(method = 'ffill')
-    bout_stats = df.groupby(['Cage','bout_n']).apply(get_bout_stats)
-    bout_stats['imis_s'] = bout_stats.groupby('Cage').apply(get_imis)
+    if inter_thresh>0:
+        bout_stats = df.groupby(['Cage','bout_n']).apply(get_bout_stats)
+        bout_stats['imis_s'] = bout_stats.groupby('Cage').apply(get_imis)
+    else:
+        bout_stats = df.rename(columns = {'start_dts': 'start', 
+                                          'end_dts': 'end', 
+                                          'InterIn_min': 'imis_s', 
+                                          'In_g': 'size'})
+        bout_stats = bout_stats.reset_index().set_index(['Cage', 'bout_n'])
+        bout_stats['imi_s'] = bout_stats.imis_s * 60
+        bout_stats['dur_s'] = (bout_stats.end - bout_stats.start).dt.total_seconds()
     bout_stats.loc[bout_stats.imis_s<0,'imis_s'] = 0. # force negative imis to 0. this happens when theres only 1 meal
     return bout_stats.fillna(0), df
 
