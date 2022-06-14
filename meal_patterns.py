@@ -286,4 +286,4 @@ def apply_cb(fpath, stats):
     for i in tmp.Cage.unique():
         c = cb.loc[i]
         tmp.loc[tmp.Cage==i,'feeder'] = tmp.loc[tmp.Cage==i].feeder.replace(dict(zip(c.values, c.index)))
-    return tmp.set_index(['feeder','Cage'])
+    return tmp.set_index(['feeder','Cage']).sort_index()
