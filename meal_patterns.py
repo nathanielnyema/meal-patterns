@@ -35,7 +35,7 @@ def load_operant(fpath, var_names = ['l','r'], dur = None):
                 st = d[bx][-1]['start']
             t = (st + d[bx][0][v][:] * timedelta(seconds = 1)).flatten()
             df['start_dts'].extend( t.tolist())
-            df['end_dts'].extend((t + timedelta(seconds = 0.0001)).tolist())
+            df['end_dts'].extend((t + timedelta(seconds = 0.00001)).tolist())
 
     df = pd.DataFrame(df).set_index(['feeders','Cage', 'start_dts'])
     return df
@@ -197,12 +197,12 @@ def get_bouts(df, inter_thresh):
         bout_stats = df.groupby(['Cage','bout_n']).apply(get_bout_stats)
         bout_stats['imis_s'] = bout_stats.groupby('Cage').apply(get_imis)
     else:
+        df['InterIn_min'] = df.InterIn_min * 60
         bout_stats = df.rename(columns = {'start_dts': 'start', 
                                           'end_dts': 'end', 
                                           'InterIn_min': 'imis_s', 
                                           'In_g': 'size'})
         bout_stats = bout_stats.reset_index().set_index(['Cage', 'bout_n'])
-        bout_stats['imi_s'] = bout_stats.imis_s * 60
         bout_stats['dur_s'] = (bout_stats.end - bout_stats.start).dt.total_seconds()
     bout_stats.loc[bout_stats.imis_s<0,'imis_s'] = 0. # force negative imis to 0. this happens when theres only 1 meal
     return bout_stats.fillna(0), df
