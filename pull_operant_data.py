@@ -60,9 +60,8 @@ def pull_multiple(fld:str, key = 'box', use_most_recent = True , log = False):
     """
     data={}
     for i in os.listdir(fld):
-        if i == '.DS_Store': continue
-        else:
-            file = os.path.join(fld,i)
+        file = os.path.join(fld,i)
+        if (Path(file).name[0] != '.') and Path(file).is_file():
             d = pull_data(file, key)
             for k in d:
                 if len(d[k])>1 and log: 
